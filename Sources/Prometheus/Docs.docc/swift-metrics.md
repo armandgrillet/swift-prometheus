@@ -192,10 +192,10 @@ Configuration is read once when the factory is created; it does not reload autom
 Operators can then set:
 
 ```bash
-export SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS=0.05,0.1,0.25,0.5,1,5
+export SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS=0.05,0.1,0.25,0.5,1,5
 ```
 
-Values from `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS` are interpreted as seconds for duration
+Values from `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS` are interpreted as seconds for duration
 histograms and as raw upper bounds for value histograms. Bucket upper bounds must be finite,
 strictly increasing numbers, and duration bucket upper bounds must additionally be zero or greater.
 If the variable is unset or its value is malformed, it is ignored and the built-in default buckets
@@ -210,7 +210,7 @@ export SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS=0.05,0.1,0.25,0.5,1,5
 export SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS=5,25,100,500,1000
 ```
 
-These specific variables take precedence over `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS`. A variable
+These specific variables take precedence over `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS`. A variable
 whose value is malformed is ignored, as if it were unset.
 
 Applications can supply any Swift Configuration provider. The following keys expect
@@ -218,7 +218,7 @@ comma-separated **string** values (including when using JSON or in-memory provid
 
 | Configuration key | Environment variable |
 | --- | --- |
-| `swift.prometheus.default.histograms` | `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS` |
+| `swift.prometheus.default.histogram.buckets` | `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS` |
 | `swift.prometheus.default.duration.histogram.buckets` | `SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS` |
 | `swift.prometheus.default.value.histogram.buckets` | `SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS` |
 

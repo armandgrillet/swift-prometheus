@@ -66,12 +66,12 @@ public struct PrometheusMetricsFactory: Sendable {
     /// Configuration is read once during initialization. Values are comma-separated strings
     /// of bucket upper bounds, interpreted as seconds for durations and raw values otherwise:
     ///
-    /// - `swift.prometheus.default.histograms`: Shared defaults for both histogram kinds.
+    /// - `swift.prometheus.default.histogram.buckets`: Shared defaults for both histogram kinds.
     /// - `swift.prometheus.default.duration.histogram.buckets`: Duration-specific defaults.
     /// - `swift.prometheus.default.value.histogram.buckets`: Value-specific defaults.
     ///
     /// With `EnvironmentVariablesProvider`, these keys map to
-    /// `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS`,
+    /// `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS`,
     /// `SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS`, and
     /// `SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS`, respectively.
     ///
@@ -90,7 +90,7 @@ public struct PrometheusMetricsFactory: Sendable {
         configuration: ConfigReader
     ) {
         self.init(registry: registry)
-        let shared = configuration.string(forKey: "swift.prometheus.default.histograms")
+        let shared = configuration.string(forKey: "swift.prometheus.default.histogram.buckets")
         self.defaultDurationHistogramBuckets =
             configuration.string(
                 forKey: "swift.prometheus.default.duration.histogram.buckets"

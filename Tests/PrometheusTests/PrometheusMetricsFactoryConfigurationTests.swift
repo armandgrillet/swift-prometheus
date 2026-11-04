@@ -19,7 +19,7 @@ import XCTest
 
 @available(macOS 15, iOS 18, watchOS 11, tvOS 18, visionOS 2, *)
 final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
-    private static let defaultBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_HISTOGRAMS"
+    private static let defaultBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS"
     private static let durationBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS"
     private static let valueBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS"
 
@@ -41,7 +41,7 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
 
     func testInMemoryConfigurationAndProviderPrecedence() {
         let configuration = ConfigReader(providers: [
-            InMemoryProvider(values: ["swift.prometheus.default.histograms": "0.5,1,5"]),
+            InMemoryProvider(values: ["swift.prometheus.default.histogram.buckets": "0.5,1,5"]),
             EnvironmentVariablesProvider(environmentVariables: [Self.defaultBucketsVariable: "10,20"]),
         ])
         let factory = PrometheusMetricsFactory(configuration: configuration)
@@ -53,7 +53,7 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         let factory = PrometheusMetricsFactory(
             configuration: ConfigReader(
                 provider: InMemoryProvider(values: [
-                    "swift.prometheus.default.histograms": "1,2,3",
+                    "swift.prometheus.default.histogram.buckets": "1,2,3",
                     "swift.prometheus.default.duration.histogram.buckets": "1,,2",
                     "swift.prometheus.default.value.histogram.buckets": true,
                 ])
@@ -69,7 +69,7 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
             registry: registry,
             configuration: ConfigReader(
                 provider: InMemoryProvider(values: [
-                    "swift.prometheus.default.histograms": "1,2,3"
+                    "swift.prometheus.default.histogram.buckets": "1,2,3"
                 ])
             )
         )
