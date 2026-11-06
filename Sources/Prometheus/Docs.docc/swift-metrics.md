@@ -181,7 +181,7 @@ environment-backed reader:
 import Configuration
 
 let configuration = ConfigReader(provider: EnvironmentVariablesProvider())
-var factory = PrometheusMetricsFactory(configuration: configuration)
+let factory = try await PrometheusMetricsFactory(configuration: configuration)
 MetricsSystem.bootstrap(factory)
 ```
 
@@ -198,9 +198,9 @@ export SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS=0.05,0.1,0.25,0.5,1,5
 Values from `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS` are interpreted as seconds for duration
 histograms and as raw upper bounds for value histograms. Bucket upper bounds must be finite,
 strictly increasing numbers, and duration bucket upper bounds must additionally be zero or greater.
-If the variable is unset or its value is malformed, it is ignored and the built-in default buckets
-are used instead. Buckets that are configured explicitly in code, as shown in the examples above,
-take precedence over the environment.
+If the variable is unset, the built-in default buckets are used unless a more specific value is set.
+Buckets that are configured explicitly in code, as shown in the examples above, take precedence
+over the environment.
 
 If duration and value histograms need different default buckets, use the more specific
 environment variables:
@@ -210,8 +210,9 @@ export SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS=0.05,0.1,0.25,0.5,1,5
 export SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS=5,25,100,500,1000
 ```
 
-These specific variables take precedence over `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS`. A variable
-whose value is malformed is ignored, as if it were unset.
+These specific variables take precedence over `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS`.
+The initializer throws if it cannot read configuration or if a supplied list is malformed.
+Shared bounds must meet the duration requirements when used for duration histograms.
 
 Applications can supply any Swift Configuration provider. The following keys expect
 comma-separated **string** values (including when using JSON or in-memory providers):
@@ -222,7 +223,7 @@ comma-separated **string** values (including when using JSON or in-memory provid
 | `swift.prometheus.default.duration.histogram.buckets` | `SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS` |
 | `swift.prometheus.default.value.histogram.buckets` | `SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS` |
 
-Values that cannot be read as strings are ignored. Duration bounds must also be representable
-as `Duration`. Assign bucket properties before creating metrics to override configuration.
+Duration bounds must also be representable as `Duration`. Assign bucket properties before
+creating metrics to override configuration.
 
 [Swift Metrics]: https://github.com/apple/swift-metrics

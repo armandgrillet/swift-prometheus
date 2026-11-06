@@ -23,8 +23,8 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
     private static let durationBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS"
     private static let valueBucketsVariable = "SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS"
 
-    private func makeFactory(_ environment: [String: String] = [:]) -> PrometheusMetricsFactory {
-        PrometheusMetricsFactory(
+    private func makeFactory(_ environment: [String: String] = [:]) async throws -> PrometheusMetricsFactory {
+        try await PrometheusMetricsFactory(
             registry: PrometheusCollectorRegistry(),
             configuration: ConfigReader(provider: EnvironmentVariablesProvider(environmentVariables: environment))
         )
@@ -39,33 +39,34 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertEqual(factory.defaultValueHistogramBuckets, PrometheusMetricsFactory.builtInValueHistogramBuckets)
     }
 
-    func testInMemoryConfigurationAndProviderPrecedence() {
+    func testInMemoryConfigurationAndProviderPrecedence() async throws {
         let configuration = ConfigReader(providers: [
             InMemoryProvider(values: ["swift.prometheus.default.histogram.buckets": "0.5,1,5"]),
             EnvironmentVariablesProvider(environmentVariables: [Self.defaultBucketsVariable: "10,20"]),
         ])
-        let factory = PrometheusMetricsFactory(configuration: configuration)
+        let factory = try await PrometheusMetricsFactory(configuration: configuration)
         XCTAssertEqual(factory.defaultDurationHistogramBuckets, [.milliseconds(500), .seconds(1), .seconds(5)])
         XCTAssertEqual(factory.defaultValueHistogramBuckets, [0.5, 1, 5])
     }
 
-    func testMalformedAndWrongTypeSpecificValuesFallBackToSharedValue() {
-        let factory = PrometheusMetricsFactory(
-            configuration: ConfigReader(
-                provider: InMemoryProvider(values: [
-                    "swift.prometheus.default.histogram.buckets": "1,2,3",
-                    "swift.prometheus.default.duration.histogram.buckets": "1,,2",
-                    "swift.prometheus.default.value.histogram.buckets": true,
-                ])
-            )
+    func testInitRejectsWrongTypeSpecificValue() async {
+        let configuration = ConfigReader(
+            provider: InMemoryProvider(values: [
+                "swift.prometheus.default.histogram.buckets": "1,2,3",
+                "swift.prometheus.default.value.histogram.buckets": true,
+            ])
         )
-        XCTAssertEqual(factory.defaultDurationHistogramBuckets, [.seconds(1), .seconds(2), .seconds(3)])
-        XCTAssertEqual(factory.defaultValueHistogramBuckets, [1, 2, 3])
+        do {
+            _ = try await PrometheusMetricsFactory(configuration: configuration)
+            XCTFail("Expected the non-string value to throw")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("swift.prometheus.default.value.histogram.buckets"))
+        }
     }
 
-    func testExplicitDefaultsAndPerLabelBucketsOverrideConfiguration() {
+    func testExplicitDefaultsAndPerLabelBucketsOverrideConfiguration() async throws {
         let registry = PrometheusCollectorRegistry()
-        var factory = PrometheusMetricsFactory(
+        var factory = try await PrometheusMetricsFactory(
             registry: registry,
             configuration: ConfigReader(
                 provider: InMemoryProvider(values: [
@@ -133,15 +134,15 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertNotNil(PrometheusMetricsFactory.parseValueHistogramBuckets("1,1e300"))
     }
 
-    func testInitReadsDefaultBucketsFromEnvironment() {
-        let factory = self.makeFactory([Self.defaultBucketsVariable: "0.5,1,5"])
+    func testInitReadsDefaultBucketsFromEnvironment() async throws {
+        let factory = try await self.makeFactory([Self.defaultBucketsVariable: "0.5,1,5"])
 
         XCTAssertEqual(factory.defaultDurationHistogramBuckets, [.milliseconds(500), .seconds(1), .seconds(5)])
         XCTAssertEqual(factory.defaultValueHistogramBuckets, [0.5, 1, 5])
     }
 
-    func testInitReadsSpecificBucketsFromEnvironment() {
-        let factory = self.makeFactory([
+    func testInitReadsSpecificBucketsFromEnvironment() async throws {
+        let factory = try await self.makeFactory([
             Self.durationBucketsVariable: "0.5,1,5",
             Self.valueBucketsVariable: "10,100,1000",
         ])
@@ -150,8 +151,8 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertEqual(factory.defaultValueHistogramBuckets, [10, 100, 1000])
     }
 
-    func testSpecificBucketsTakePrecedenceOverDefaultBucketsEnvironment() {
-        let factory = self.makeFactory([
+    func testSpecificBucketsTakePrecedenceOverDefaultBucketsEnvironment() async throws {
+        let factory = try await self.makeFactory([
             Self.defaultBucketsVariable: "0.5,1,5",
             Self.durationBucketsVariable: "10,20,30",
             Self.valueBucketsVariable: "100,200,300",
@@ -161,30 +162,53 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertEqual(factory.defaultValueHistogramBuckets, [100, 200, 300])
     }
 
-    func testMalformedSpecificBucketsFallBackToDefaultBucketsEnvironment() {
-        let factory = self.makeFactory([
-            Self.defaultBucketsVariable: "0.5,1,5",
-            Self.durationBucketsVariable: "oops",
-        ])
-
-        XCTAssertEqual(factory.defaultDurationHistogramBuckets, [.milliseconds(500), .seconds(1), .seconds(5)])
-        XCTAssertEqual(factory.defaultValueHistogramBuckets, [0.5, 1, 5])
+    func testInitRejectsInvalidBucketLists() async {
+        let cases = [
+            (
+                [Self.defaultBucketsVariable: "0.5,0.1,oops"],
+                "swift.prometheus.default.histogram.buckets",
+                "strictly increasing"
+            ),
+            (
+                [Self.defaultBucketsVariable: "0.5,1,5", Self.durationBucketsVariable: "oops"],
+                "swift.prometheus.default.duration.histogram.buckets",
+                "representable as Duration"
+            ),
+            (
+                [Self.defaultBucketsVariable: "0.5,1,5", Self.valueBucketsVariable: "1,,2"],
+                "swift.prometheus.default.value.histogram.buckets",
+                "strictly increasing"
+            ),
+            (
+                [Self.defaultBucketsVariable: "-5,0,5"],
+                "swift.prometheus.default.histogram.buckets",
+                "nonnegative"
+            ),
+        ]
+        for (environment, key, requirement) in cases {
+            do {
+                _ = try await self.makeFactory(environment)
+                XCTFail("Expected invalid buckets for \(key) to throw")
+            } catch {
+                let message = String(describing: error)
+                XCTAssertTrue(message.contains(key), message)
+                XCTAssertTrue(message.contains(requirement), message)
+            }
+        }
     }
 
-    func testDefaultBucketsEnvironmentAppliesPerHistogramKind() {
-        // Negative upper bounds are valid for value histograms but not for duration histograms,
-        // so only the value buckets are taken from the shared variable.
-        let factory = self.makeFactory([Self.defaultBucketsVariable: "-5,0,5"])
+    func testSharedBucketsCanBeNegativeWithDurationOverride() async throws {
+        let factory = try await self.makeFactory([
+            Self.defaultBucketsVariable: "-5,0,5",
+            Self.durationBucketsVariable: "1,5",
+        ])
 
-        XCTAssertEqual(
-            factory.defaultDurationHistogramBuckets,
-            PrometheusMetricsFactory.builtInDurationHistogramBuckets
-        )
+        XCTAssertEqual(factory.defaultDurationHistogramBuckets, [.seconds(1), .seconds(5)])
         XCTAssertEqual(factory.defaultValueHistogramBuckets, [-5, 0, 5])
     }
 
-    func testInitUsesBuiltInBucketsIfEnvironmentIsUnset() {
-        let factory = self.makeFactory()
+    func testInitUsesBuiltInBucketsIfEnvironmentIsUnset() async throws {
+        let factory = try await self.makeFactory()
 
         XCTAssertEqual(
             factory.defaultDurationHistogramBuckets,
@@ -193,19 +217,9 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertEqual(factory.defaultValueHistogramBuckets, PrometheusMetricsFactory.builtInValueHistogramBuckets)
     }
 
-    func testInitUsesBuiltInBucketsIfEnvironmentIsMalformed() {
-        let factory = self.makeFactory([Self.defaultBucketsVariable: "0.5,0.1,oops"])
-
-        XCTAssertEqual(
-            factory.defaultDurationHistogramBuckets,
-            PrometheusMetricsFactory.builtInDurationHistogramBuckets
-        )
-        XCTAssertEqual(factory.defaultValueHistogramBuckets, PrometheusMetricsFactory.builtInValueHistogramBuckets)
-    }
-
-    func testTimerUsesDurationBucketsFromEnvironment() {
+    func testTimerUsesDurationBucketsFromEnvironment() async throws {
         let registry = PrometheusCollectorRegistry()
-        let factory = PrometheusMetricsFactory(
+        let factory = try await PrometheusMetricsFactory(
             registry: registry,
             configuration: ConfigReader(
                 provider: EnvironmentVariablesProvider(
@@ -222,9 +236,9 @@ final class PrometheusMetricsFactoryConfigurationTests: XCTestCase {
         XCTAssertTrue(output.contains(#"request_duration_seconds_sum 0.3"#))
     }
 
-    func testExplicitlyConfiguredBucketsTakePrecedenceOverEnvironment() {
+    func testExplicitlyConfiguredBucketsTakePrecedenceOverEnvironment() async throws {
         let registry = PrometheusCollectorRegistry()
-        var factory = PrometheusMetricsFactory(
+        var factory = try await PrometheusMetricsFactory(
             registry: registry,
             configuration: ConfigReader(
                 provider: EnvironmentVariablesProvider(
