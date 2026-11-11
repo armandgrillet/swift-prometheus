@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Configuration
 import CoreMetrics
 
 /// A wrapper around ``PrometheusCollectorRegistry`` to implement the `swift-metrics` `MetricsFactory` protocol
@@ -53,94 +52,24 @@ public struct PrometheusMetricsFactory: Sendable {
     ///
     /// - Parameter registry: The registry used to generate the swift-metrics handlers.
     public init(registry: PrometheusCollectorRegistry = Self.defaultRegistry) {
-        self.registry = registry
-        self.durationHistogramBuckets = [:]
-        self.defaultDurationHistogramBuckets = Self.builtInDurationHistogramBuckets
-        self.valueHistogramBuckets = [:]
-        self.defaultValueHistogramBuckets = Self.builtInValueHistogramBuckets
-        self.nameAndLabelSanitizer = { ($0, $1) }
+        self.init(registry: registry, configuration: Configuration())
     }
 
-    /// Creates a factory with default histogram buckets read from configuration.
-    ///
-    /// Configuration is read once during initialization. Values are comma-separated strings
-    /// of bucket upper bounds, interpreted as seconds for durations and raw values otherwise:
-    ///
-    /// - `swift.prometheus.default.histogram.buckets`: Shared defaults for both histogram kinds.
-    /// - `swift.prometheus.default.duration.histogram.buckets`: Duration-specific defaults.
-    /// - `swift.prometheus.default.value.histogram.buckets`: Value-specific defaults.
-    ///
-    /// With `EnvironmentVariablesProvider`, these keys map to
-    /// `SWIFT_PROMETHEUS_DEFAULT_HISTOGRAM_BUCKETS`,
-    /// `SWIFT_PROMETHEUS_DEFAULT_DURATION_HISTOGRAM_BUCKETS`, and
-    /// `SWIFT_PROMETHEUS_DEFAULT_VALUE_HISTOGRAM_BUCKETS`, respectively.
-    ///
-    /// Bounds must be finite and strictly increasing. Bounds used for duration histograms must also
-    /// be nonnegative and representable as `Duration`. Missing specific values fall back to the
-    /// shared value, then to built-in defaults.
-    /// Assignments to the default bucket properties or per-label bucket dictionaries after
-    /// initialization take precedence over configuration.
+    /// Creates a factory with the specified configuration.
     ///
     /// - Parameters:
     ///   - registry: The registry used to generate the swift-metrics handlers.
-    ///   - configuration: The reader supplying configuration from application-selected providers.
-    /// - Throws: An error if configuration cannot be read as a string or contains invalid bounds.
-    @available(macOS 15, iOS 18, watchOS 11, tvOS 18, visionOS 2, *)
+    ///   - configuration: The default histogram buckets to use when creating metrics.
     public init(
         registry: PrometheusCollectorRegistry = Self.defaultRegistry,
-        configuration: ConfigReader
-    ) async throws {
-        self.init(registry: registry)
-        let sharedKey: ConfigKey = "swift.prometheus.default.histogram.buckets"
-        let durationKey: ConfigKey = "swift.prometheus.default.duration.histogram.buckets"
-        let valueKey: ConfigKey = "swift.prometheus.default.value.histogram.buckets"
-        let expectedBounds = "a comma-separated list of finite, strictly increasing bounds"
-
-        let shared = try await configuration.fetchString(forKey: sharedKey)
-        let duration = try await configuration.fetchString(forKey: durationKey)
-        let value = try await configuration.fetchString(forKey: valueKey)
-
-        let sharedValueBuckets = try Self.validateBuckets(
-            shared,
-            forKey: sharedKey,
-            expected: expectedBounds,
-            parse: Self.parseValueHistogramBuckets
-        )
-        self.defaultDurationHistogramBuckets =
-            try Self.validateBuckets(
-                duration ?? shared,
-                forKey: duration == nil ? sharedKey : durationKey,
-                expected: "\(expectedBounds) in seconds, nonnegative and representable as Duration",
-                parse: Self.parseDurationHistogramBuckets
-            ) ?? Self.builtInDurationHistogramBuckets
-        self.defaultValueHistogramBuckets =
-            try Self.validateBuckets(
-                value,
-                forKey: valueKey,
-                expected: expectedBounds,
-                parse: Self.parseValueHistogramBuckets
-            ) ?? sharedValueBuckets ?? Self.builtInValueHistogramBuckets
-    }
-
-    @available(macOS 15, iOS 18, watchOS 11, tvOS 18, visionOS 2, *)
-    private static func validateBuckets<Bucket>(
-        _ string: String?,
-        forKey key: ConfigKey,
-        expected: String,
-        parse: (String) -> [Bucket]?
-    ) throws -> [Bucket]? {
-        guard let string else { return nil }
-        guard let buckets = parse(string) else {
-            throw InvalidHistogramBuckets(key: key.description, expected: expected)
-        }
-        return buckets
-    }
-
-    private struct InvalidHistogramBuckets: Error, CustomStringConvertible {
-        let key: String
-        let expected: String
-
-        var description: String { "Invalid histogram buckets for '\(key)': expected \(expected)." }
+        configuration: Configuration
+    ) {
+        self.registry = registry
+        self.durationHistogramBuckets = [:]
+        self.defaultDurationHistogramBuckets = configuration.defaultDurationHistogramBuckets
+        self.valueHistogramBuckets = [:]
+        self.defaultValueHistogramBuckets = configuration.defaultValueHistogramBuckets
+        self.nameAndLabelSanitizer = { ($0, $1) }
     }
 }
 
@@ -160,51 +89,6 @@ extension PrometheusMetricsFactory {
     ]
 
     static let builtInValueHistogramBuckets: [Double] = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
-
-    /// Parses a comma-separated list of histogram bucket upper bounds, e.g. `5,25,100,500`.
-    ///
-    /// Whitespace around values is ignored. Returns `nil` if the list is empty or contains empty
-    /// segments, if a value can not be parsed as a finite `Double`, or if the values are not
-    /// strictly increasing.
-    static func parseValueHistogramBuckets(_ string: String) -> [Double]? {
-        var buckets = [Double]()
-        for var segment in string.split(separator: ",", omittingEmptySubsequences: false) {
-            while segment.first?.isWhitespace == true {
-                segment.removeFirst()
-            }
-            while segment.last?.isWhitespace == true {
-                segment.removeLast()
-            }
-            guard let bucket = Double(segment), bucket.isFinite else {
-                return nil
-            }
-            if let last = buckets.last, bucket <= last {
-                return nil
-            }
-            buckets.append(bucket)
-        }
-        return buckets.isEmpty ? nil : buckets
-    }
-
-    /// Parses a comma-separated list of duration histogram bucket upper bounds in seconds,
-    /// e.g. `0.05,0.1,0.25,0.5,1,5`.
-    ///
-    /// In addition to the rules of ``parseValueHistogramBuckets(_:)``, every value must be zero
-    /// or greater and representable as a `Duration`.
-    static func parseDurationHistogramBuckets(_ string: String) -> [Duration]? {
-        guard let seconds = self.parseValueHistogramBuckets(string) else {
-            return nil
-        }
-        var buckets = [Duration]()
-        for value in seconds {
-            // `Duration` counts attoseconds in an Int128; converting a `Double` beyond its range traps.
-            guard value >= 0, value * 1e18 < 0x1p127 else {
-                return nil
-            }
-            buckets.append(.seconds(value))
-        }
-        return buckets
-    }
 }
 
 extension PrometheusMetricsFactory: CoreMetrics.MetricsFactory {
